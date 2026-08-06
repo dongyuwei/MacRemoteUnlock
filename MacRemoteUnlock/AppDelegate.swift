@@ -268,15 +268,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Menu actions
 
-    @objc func toggleRemoteUnlock(_ item: NSMenuItem) {
-        let on = !remote.enabled
-        remote.enabled = on
-        item.state = on ? .on : .off
-        if on && remote.tailscaleIPs().isEmpty {
-            print("Remote: enabled but no Tailscale address found")
-        }
-    }
-
     @objc func toggleRemoteFunnel(_ item: NSMenuItem) {
         let on = !remote.funnelEnabled
         remote.funnelEnabled = on
@@ -324,7 +315,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let msg = NSAlert()
         msg.addButton(withTitle: "OK")
         msg.addButton(withTitle: "Cancel")
-        msg.messageText = "Set Server Port"
+        msg.messageText = "Set HTTP Server Port"
         msg.window.title = "MacRemoteUnlock"
         let txt = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         txt.stringValue = String(remote.port)
@@ -416,9 +407,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         remoteItem.submenu = remoteMenu
         remoteMenu.delegate = self
 
-        let enableToggle = remoteMenu.addItem(withTitle: "Enable Remote Unlock", action: #selector(toggleRemoteUnlock), keyEquivalent: "")
-        enableToggle.state = remote.enabled ? .on : .off
-
         remoteURLLabel = remoteMenu.addItem(withTitle: "not started", action: nil, keyEquivalent: "")
         funnelURLLabel = remoteMenu.addItem(withTitle: "Funnel: disabled", action: nil, keyEquivalent: "")
         funnelToggleItem = remoteMenu.addItem(withTitle: "Enable Funnel (public URL)", action: #selector(toggleRemoteFunnel), keyEquivalent: "")
@@ -427,11 +415,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         funnelOpenItem?.isHidden = !remote.funnelEnabled
         remoteMenu.addItem(withTitle: "Open Unlock Page…", action: #selector(openRemotePage), keyEquivalent: "")
         remoteMenu.addItem(withTitle: "Set Access Token…", action: #selector(setRemoteToken), keyEquivalent: "")
-        remoteMenu.addItem(withTitle: "Set Port…", action: #selector(setRemotePort), keyEquivalent: "")
+        remoteMenu.addItem(withTitle: "Set HTTP Server Port…", action: #selector(setRemotePort), keyEquivalent: "")
 
         mainMenu.addItem(NSMenuItem.separator())
         mainMenu.addItem(withTitle: "Set Login Password…", action: #selector(askPassword), keyEquivalent: "")
-        launchAtLoginItem = mainMenu.addItem(withTitle: "Start at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem = mainMenu.addItem(withTitle: "Launch At Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
         launchAtLoginItem?.state = isLaunchAtLogin() ? .on : .off
         mainMenu.addItem(NSMenuItem.separator())
         mainMenu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")

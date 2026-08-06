@@ -30,8 +30,8 @@ This is a **remote-unlock-only fork** of [BLEUnlock](https://github.com/ts1/BLEU
 
 ## 首次使用 / First-time Setup
 
-1. 启动后，菜单栏图标 → **Remote Unlock** → 勾选 **Enable Remote Unlock**（默认已启用）
-   Menu bar icon → **Remote Unlock** → check **Enable Remote Unlock** (enabled by default)
+1. 启动后（remote unlock **默认启用**），菜单栏图标 → **Remote Unlock** 查看地址和 token
+   After launch (remote unlock is **enabled by default**), menu bar icon → **Remote Unlock** to see the URL and token
 2. **Set Login Password…** 设置一次登录密码（存入 Keychain）/ set your login password once (stored in Keychain)
 3. 授予**辅助功能权限**：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 MacRemoteUnlock
    Grant **Accessibility** permission: System Settings → Privacy & Security → Accessibility → enable MacRemoteUnlock
