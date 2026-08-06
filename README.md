@@ -7,6 +7,12 @@ A minimal macOS menu bar app: when your Mac is locked, approve it from a phone b
 这是 [BLEUnlock](https://github.com/ts1/BLEUnlock) 的**远程解锁精简版**（fork），剥离了蓝牙接近检测、媒体控制等无关功能。
 This is a **remote-unlock-only fork** of [BLEUnlock](https://github.com/ts1/BLEUnlock), stripped of Bluetooth proximity detection, media control, etc.
 
+## 初衷 / Motivation
+
+作者日常使用 Mac 时，Touch ID 识别失败率较高——尤其是**冬季干燥**时指纹更难识别；且本人**指纹较浅**，经常需要输密码。加上比较懒不想每次敲密码，于是做了这个 app：锁屏后，手机点一下「批准解锁」，Mac 自动输入密码登录。
+
+The author's Mac Touch ID frequently fails to recognize the fingerprint — especially in **dry winter** conditions, and the fingerprints are **shallow**, so typing the password was needed often. Being too lazy to type it every time, this app was made: when the Mac is locked, tap **approve** on the phone and the Mac types the password and logs in.
+
 ## 功能 / Features
 
 - 轻量 HTTP server（POSIX socket，无第三方依赖），默认端口 8123 / Lightweight HTTP server (POSIX sockets, no dependencies), default port 8123
@@ -56,13 +62,14 @@ Menu → **Enable Funnel (public URL)**:
 
 **感谢 / Credits**: [BLEUnlock](https://github.com/ts1/BLEUnlock) by Takeshi Sone (MIT). 本项目基于它的核心机制精简而来。
 
-**复用的代码 / Reused code**:
-- `RemoteUnlockServer.swift`：HTTP server、Tailscale 来源限制、6 位 token、失败限速、Funnel 自动配置（自动执行 `tailscale funnel --bg`、退出关闭、启动清理残留）— 在本项目开发中编写，同样适用 MIT
-  HTTP server, Tailscale source restriction, 6-digit token, rate limiting, Funnel auto-configuration — written during this project's development, also MIT
+**复用的代码 / Reused code**（from BLEUnlock）:
 - Keychain 密码存取（`storePassword`/`fetchPassword`）/ Keychain password storage (`storePassword`/`fetchPassword`)
 - CGEvent 键盘注入解锁（`fakeKeyStrokes`）、锁屏检测（`isScreenLocked`）、唤醒屏幕与屏保处理（`wakeDisplay`、Esc 退出屏保）
   CGEvent keystroke injection (`fakeKeyStrokes`), lock detection (`isScreenLocked`), display wake and screensaver handling (`wakeDisplay`, Esc to exit screensaver)
 - 菜单栏状态栏 UI 结构 / menu bar status item structure
+
+> 注：`RemoteUnlockServer.swift`（HTTP server、Tailscale 来源限制、6 位 token、失败限速、Funnel 自动配置）是**本项目开发中编写**的，不属于 BLEUnlock 原始代码。
+> Note: `RemoteUnlockServer.swift` (HTTP server, Tailscale source restriction, 6-digit token, rate limiting, Funnel auto-configuration) was **written for this project**, not part of the original BLEUnlock.
 
 **移除的功能 / Removed**: BLE 接近检测（BLE.swift）、RSSI 菜单、媒体暂停恢复（MediaRemote）、登录项 Launcher helper、AboutBox、更新检查、lock/unlock 事件脚本。
 
@@ -70,7 +77,6 @@ Menu → **Enable Funnel (public URL)**:
 
 - 仅覆盖**锁屏场景**（重启后登录窗口 / FileVault 界面需手动输密码）
   Works only for the **lock screen** (login window after reboot / FileVault still need a manual password)
-- 与 BLEUnlock **共用 8123 端口**，两者不能同时运行 / Shares port 8123 with BLEUnlock — do not run both at once
 - Debug 构建是 ad-hoc 签名，辅助功能授权绑定启动路径：**必须用 `./start.sh` 启动**，复制到 /Applications 会静默失去解锁权限；重新构建后如失效需重新授权
   Debug builds are ad-hoc signed; the Accessibility permission is bound to the launch path — **always launch via `./start.sh`**, copying to /Applications silently loses the permission; re-grant it after rebuilding
 
@@ -78,3 +84,8 @@ Menu → **Enable Funnel (public URL)**:
 
 MIT，与 BLEUnlock 一致。见 [LICENSE](LICENSE)。
 MIT, same as BLEUnlock. See [LICENSE](LICENSE).
+
+## 安全性 / Security
+
+安全模型、威胁分析与最佳实践见 [SECURITY.md](SECURITY.md)。
+Threat model, defense layers and best practices: [SECURITY.md](SECURITY.md).
