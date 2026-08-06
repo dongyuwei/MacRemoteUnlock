@@ -16,6 +16,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var remoteURLLabel: NSMenuItem?
     var funnelURLLabel: NSMenuItem?
     var funnelToggleItem: NSMenuItem?
+    var funnelOpenItem: NSMenuItem?
+    var launchAtLoginItem: NSMenuItem?
 
     var displaySleep = false
     var systemSleep = false
@@ -37,6 +39,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 funnelURLLabel?.title = "Funnel: disabled"
             }
             funnelToggleItem?.state = remote.funnelEnabled ? .on : .off
+            funnelOpenItem?.isHidden = !remote.funnelEnabled
         }
     }
 
@@ -132,7 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func remoteUnlock() -> String {
         guard isScreenLocked() else { return "Mac 未处于锁定状态" }
-        guard let password = fetchPassword(warn: false) else { return "未设置密码（菜单：Set Password…）" }
+        guard let password = fetchPassword(warn: false) else { return "未设置密码（菜单：Set Login Password…）" }
         print("Remote: unlock approved, entering password")
         print("Remote: state locked=\(isScreenLocked()) displaySleep=\(displaySleep) systemSleep=\(systemSleep) inScreensaver=\(inScreensaver)")
         if displaySleep {
@@ -278,6 +281,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let on = !remote.funnelEnabled
         remote.funnelEnabled = on
         item.state = on ? .on : .off
+        funnelOpenItem?.isHidden = !on
         print("Remote: funnel \(on ? "enabled" : "disabled")")
     }
 
@@ -356,6 +360,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
+    // MARK: - Launch at login (LaunchAgent, no helper app / signing required)
+
+    private func launchAgentPath() -> String {
+        NSHomeDirectory() + "/Library/LaunchAgents/github.dongyuwei.macremoteunlock.plist"
+    }
+
+    func isLaunchAtLogin() -> Bool {
+        FileManager.default.fileExists(atPath: launchAgentPath())
+    }
+
+    func setLaunchAtLogin(_ enabled: Bool) {
+        let path = launchAgentPath()
+        if enabled {
+            let plist: [String: Any] = [
+                "Label": "github.dongyuwei.macremoteunlock",
+                "ProgramArguments": [Bundle.main.executablePath ?? ""],
+                "RunAtLoad": true,
+            ]
+            (plist as NSDictionary).write(toFile: path, atomically: true)
+        } else {
+            try? FileManager.default.removeItem(atPath: path)
+        }
+    }
+
+    @objc func toggleLaunchAtLogin(_ item: NSMenuItem) {
+        let on = !isLaunchAtLogin()
+        setLaunchAtLogin(on)
+        item.state = on ? .on : .off
+    }
+
     func errorModal(_ msg: String, info: String? = nil) {
         let alert = NSAlert()
         alert.messageText = msg
@@ -389,13 +423,16 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         funnelURLLabel = remoteMenu.addItem(withTitle: "Funnel: disabled", action: nil, keyEquivalent: "")
         funnelToggleItem = remoteMenu.addItem(withTitle: "Enable Funnel (public URL)", action: #selector(toggleRemoteFunnel), keyEquivalent: "")
         funnelToggleItem?.state = remote.funnelEnabled ? .on : .off
-        remoteMenu.addItem(withTitle: "Open Unlock Page (Funnel)…", action: #selector(openFunnelPage), keyEquivalent: "")
+        funnelOpenItem = remoteMenu.addItem(withTitle: "Open Unlock Page (Funnel)…", action: #selector(openFunnelPage), keyEquivalent: "")
+        funnelOpenItem?.isHidden = !remote.funnelEnabled
         remoteMenu.addItem(withTitle: "Open Unlock Page…", action: #selector(openRemotePage), keyEquivalent: "")
         remoteMenu.addItem(withTitle: "Set Access Token…", action: #selector(setRemoteToken), keyEquivalent: "")
         remoteMenu.addItem(withTitle: "Set Port…", action: #selector(setRemotePort), keyEquivalent: "")
 
         mainMenu.addItem(NSMenuItem.separator())
-        mainMenu.addItem(withTitle: "Set Password…", action: #selector(askPassword), keyEquivalent: "")
+        mainMenu.addItem(withTitle: "Set Login Password…", action: #selector(askPassword), keyEquivalent: "")
+        launchAtLoginItem = mainMenu.addItem(withTitle: "Start at Login", action: #selector(toggleLaunchAtLogin), keyEquivalent: "")
+        launchAtLoginItem?.state = isLaunchAtLogin() ? .on : .off
         mainMenu.addItem(NSMenuItem.separator())
         mainMenu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 

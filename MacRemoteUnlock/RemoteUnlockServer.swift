@@ -93,7 +93,11 @@ final class RemoteUnlockServer {
     // MARK: - Configuration
 
     var enabled: Bool {
-        get { prefs.bool(forKey: "remoteUnlockEnabled") }
+        get {
+            // Default ON: enabled unless the user explicitly turned it off.
+            if prefs.object(forKey: "remoteUnlockEnabled") == nil { return true }
+            return prefs.bool(forKey: "remoteUnlockEnabled")
+        }
         set {
             prefs.set(newValue, forKey: "remoteUnlockEnabled")
             if newValue { start() } else { stop() }
