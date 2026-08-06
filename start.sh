@@ -42,13 +42,15 @@ echo "PID: $!"
 echo "Log: $LOG"
 
 # Wait for the HTTP server (first launch may take a few seconds due to TCC checks)
+# Read the configured port (user can change it via menu); default 8123
+PORT=$(defaults read github.dongyuwei.macremoteunlock remotePort 2>/dev/null || echo 8123)
 for i in $(seq 1 10); do
-    if lsof -nP -iTCP:8123 -sTCP:LISTEN | grep -q "MacRemote"; then
-        echo "Remote Unlock server: listening on port 8123"
+    if lsof -nP -iTCP:$PORT -sTCP:LISTEN | grep -q "MacRemote"; then
+        echo "Remote Unlock server: listening on port $PORT"
         break
     fi
     sleep 1
     if [ "$i" = "10" ]; then
-        echo "WARNING: port 8123 not listening after 10s. Check log: $LOG"
+        echo "WARNING: port $PORT not listening after 10s. Check log: $LOG"
     fi
  done
