@@ -195,6 +195,24 @@ final class RemoteUnlockServer {
             print("RemoteUnlock: tailscale CLI not found; skipping funnel")
             return nil
         }
+
+        // If an existing serve/funnel config is present, make sure it points at
+        // OUR current port. Otherwise the new 'funnel --bg' would fail with
+        // "listener already exists for port 443" and the proxy would keep the
+        // old port (which happens after the user changes the HTTP server port).
+        if let status = run(cli, ["serve", "status"]) {
+            let target = "127.0.0.1:\(port)"
+            let hasFunnel = status.lowercased().contains("funnel on") || status.contains("ts.net")
+            if hasFunnel {
+                if status.contains(target) {
+                    print("RemoteUnlock: funnel already configured for port \(port)")
+                } else {
+                    print("RemoteUnlock: funnel points elsewhere, resetting and re-pointing to port \(port)")
+                    run(cli, ["serve", "reset"])
+                }
+            }
+        }
+
         // Idempotent: make sure funnel is on for this port (background mode = persistent)
         if let out = run(cli, ["funnel", "--bg", String(port)]) {
             let trimmed = out.trimmingCharacters(in: .whitespacesAndNewlines)
