@@ -295,18 +295,18 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         msg.addButton(withTitle: "OK")
         msg.addButton(withTitle: "Cancel")
         msg.messageText = "Set Access Token"
-        msg.informativeText = "6 位数字。手机浏览器解锁时需输入此令牌。"
+        msg.informativeText = "至少 6 位（数字和字母均可）。手机浏览器解锁时需输入此令牌。"
         msg.window.title = "MacRemoteUnlock"
         let txt = NSTextField(frame: NSRect(x: 0, y: 0, width: 120, height: 24))
         txt.stringValue = remote.token
         msg.accessoryView = txt
         NSApp.activate(ignoringOtherApps: true)
         if msg.runModal() == .alertFirstButtonReturn {
-            let v = txt.stringValue.trimmingCharacters(in: .whitespaces)
-            if v.count == 6 && v.allSatisfy({ $0.isNumber }) {
+            let v = txt.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if v.count >= 6 {
                 remote.token = v
             } else {
-                errorModal("Token must be a 6-digit number")
+                errorModal("Token must be at least 6 characters")
             }
         }
     }

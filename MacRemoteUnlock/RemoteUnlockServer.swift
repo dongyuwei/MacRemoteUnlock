@@ -112,17 +112,23 @@ final class RemoteUnlockServer {
         set { prefs.set(Int(newValue), forKey: "remotePort") }
     }
 
-    /// 6-digit numeric access token. Auto-generated on first access.
+    /// Access token: at least 6 characters (digits and/or letters, case-sensitive).
+    /// Auto-generated on first access.
     var token: String {
         get {
-            if let t = prefs.string(forKey: "remoteToken"), t.count == 6, t.allSatisfy({ $0.isNumber }) {
+            if let t = prefs.string(forKey: "remoteToken"), t.count >= 6 {
                 return t
             }
-            let t = String(format: "%06d", Int.random(in: 0...999999))
+            let t = Self.randomToken()
             prefs.set(t, forKey: "remoteToken")
             return t
         }
         set { prefs.set(newValue, forKey: "remoteToken") }
+    }
+
+    private static func randomToken() -> String {
+        let chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return String((0..<6).compactMap { _ in chars.randomElement() })
     }
 
     func start() {
@@ -145,7 +151,7 @@ final class RemoteUnlockServer {
             guard let status = self.run(cli, ["serve", "status"]) else { return }
             let target = "127.0.0.1:\(self.port)"
             if status.contains(target), status.lowercased().contains("funnel on") {
-                self.run(cli, ["funnel", "--https=443", "off"])
+                _ = self.run(cli, ["funnel", "--https=443", "off"])
                 print("RemoteUnlock: closed leftover funnel proxying \(target)")
             }
         }
@@ -404,8 +410,9 @@ final class RemoteUnlockServer {
         }
 
         // --- Token check (except for GET / which serves the page itself) ---
-        let reqToken = query["token"] ?? headerValue(header, name: "X-Auth-Token")
-        let tokenOK = (reqToken == token)
+        let reqToken = (query["token"] ?? headerValue(header, name: "X-Auth-Token"))?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokenOK = (reqToken == token.trimmingCharacters(in: .whitespacesAndNewlines))
         let tokenProtected = (path == "/status" || path == "/approve" || path == "/deny")
 
         if tokenProtected {
@@ -654,8 +661,8 @@ final class RemoteUnlockServer {
           setIcon('🔐');
           setState('请输入访问令牌');
           document.getElementById('actionArea').innerHTML =
-            '<input type="password" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" ' +
-            'placeholder="6 位数字" id="tokenInput">' +
+            '<input type="password" autocomplete="off" maxlength="32" ' +
+            'placeholder="至少 6 位（数字/字母）" id="tokenInput">' +
             '<button class="approve" onclick="submitToken()" style="margin-top:14px">验证</button>';
           document.getElementById('hint').textContent = '';
           setMsg('');
@@ -666,7 +673,7 @@ final class RemoteUnlockServer {
 
         function submitToken() {
           var v = document.getElementById('tokenInput').value.trim();
-          if (!/^[0-9]{6}$/.test(v)) { setMsg('请输入 6 位数字', 'err'); return; }
+          if (v.length < 6) { setMsg('请输入至少 6 位数字或字母', 'err'); return; }
           token = v;
           localStorage.setItem(TOKEN_KEY, token);
           setMsg('');
@@ -754,7 +761,7 @@ final class RemoteUnlockServer {
           btn.disabled = false; btn.textContent = '批准解锁';
         }
 
-        if (token && /^[0-9]{6}$/.test(token)) {
+        if (token && token.length >= 6) {
           startPolling();
         } else {
           showTokenInput();

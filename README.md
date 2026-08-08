@@ -17,7 +17,7 @@ The author's Mac Touch ID frequently fails to recognize the fingerprint — espe
 
 - 轻量 HTTP server（POSIX socket，无第三方依赖），默认端口 8123 / Lightweight HTTP server (POSIX sockets, no dependencies), default port 8123
 - **Tailscale 网段限制**：只接受 `100.64.0.0/10` 或 `localhost` 来源，其余 403 / **Tailscale source restriction**: only accepts `100.64.0.0/10` or `localhost`, everything else gets 403
-- **6 位数字 token** + **失败限速**（5 次错误锁 60 秒，暴力破解不可行）/ **6-digit token** + **rate limiting** (5 failures → 60s lockout)
+- **至少 6 位 token（数字+字母，区分大小写）** + **失败限速**（5 次错误锁 60 秒，暴力破解不可行）/ **token: ≥6 chars (digits + letters, case-sensitive)** + **rate limiting** (5 failures → 60s lockout)
 - **Tailscale Funnel**（可选，默认关闭）：一键发布公网 HTTPS 地址，手机无需装 Tailscale / **Tailscale Funnel** (optional, default off): one-click public HTTPS URL, no Tailscale needed on the phone
 - 密码存在 **Keychain**，绝不离开 Mac；手机只发送"批准"信号 / Password stored in **Keychain**, never leaves the Mac; the phone only sends an approve signal
 - **默认启用** remote unlock / Remote unlock is **enabled by default**
@@ -42,8 +42,8 @@ The author's Mac Touch ID frequently fails to recognize the fingerprint — espe
 3. 授予**辅助功能权限**：系统设置 → 隐私与安全性 → 辅助功能 → 勾选 MacRemoteUnlock
    Grant **Accessibility** permission: System Settings → Privacy & Security → Accessibility → enable MacRemoteUnlock
    （没有该权限时，批准后键盘注入会被系统拦截，Mac 不会解锁 / without it, keystroke injection is blocked and unlock silently fails）
-4. 手机浏览器访问菜单里显示的地址（`http://<tailscale-ip>:8123/`），输入 6 位 token
-   Open the URL shown in the menu (`http://<tailscale-ip>:8123/`) on your phone browser and enter the 6-digit token
+4. 手机浏览器访问菜单里显示的地址（`http://<tailscale-ip>:8123/`），输入 token（至少 6 位，数字/字母均可）
+   Open the URL shown in the menu (`http://<tailscale-ip>:8123/`) on your phone browser and enter the token (≥6 chars)
 5. 锁屏 Mac → 手机页面点「批准解锁」→ Mac 自动输入密码解锁
    Lock the Mac → tap **approve** on the phone → the Mac types the password and unlocks
 
@@ -56,7 +56,7 @@ Menu → **Enable Funnel (public URL)**:
   The app runs `tailscale funnel --bg 8123` and publishes a public HTTPS URL (e.g. `https://<machine>.<tailnet>.ts.net`)
 - 手机浏览器直接访问该地址，**无需安装 Tailscale** / open it in any browser, **no Tailscale needed**
 - 关闭/退出时自动停用 Funnel / Funnel is disabled on toggle-off or app quit
-- ⚠️ Funnel 暴露公网，务必保留 6 位 token（限速已内置）/ ⚠️ Funnel exposes the service publicly — keep the 6-digit token (rate limiting is built in)
+- ⚠️ Funnel 暴露公网，务必保留 token（限速已内置）/ ⚠️ Funnel exposes the service publicly — keep the token (rate limiting is built in)
 
 ## 与 BLEUnlock 的关系 / Relationship to BLEUnlock
 
@@ -68,8 +68,8 @@ Menu → **Enable Funnel (public URL)**:
   CGEvent keystroke injection (`fakeKeyStrokes`), lock detection (`isScreenLocked`), display wake and screensaver handling (`wakeDisplay`, Esc to exit screensaver)
 - 菜单栏状态栏 UI 结构 / menu bar status item structure
 
-> 注：`RemoteUnlockServer.swift`（HTTP server、Tailscale 来源限制、6 位 token、失败限速、Funnel 自动配置）是**本项目开发中编写**的，不属于 BLEUnlock 原始代码。
-> Note: `RemoteUnlockServer.swift` (HTTP server, Tailscale source restriction, 6-digit token, rate limiting, Funnel auto-configuration) was **written for this project**, not part of the original BLEUnlock.
+> 注：`RemoteUnlockServer.swift`（HTTP server、Tailscale 来源限制、token（≥6 位）、失败限速、Funnel 自动配置）是**本项目开发中编写**的，不属于 BLEUnlock 原始代码。
+> Note: `RemoteUnlockServer.swift` (HTTP server, Tailscale source restriction, token (≥6 chars), rate limiting, Funnel auto-configuration) was **written for this project**, not part of the original BLEUnlock.
 
 **移除的功能 / Removed**: BLE 接近检测（BLE.swift）、RSSI 菜单、媒体暂停恢复（MediaRemote）、登录项 Launcher helper、AboutBox、更新检查、lock/unlock 事件脚本。
 
