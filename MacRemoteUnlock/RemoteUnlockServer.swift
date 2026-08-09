@@ -182,6 +182,13 @@ final class RemoteUnlockServer {
     /// Enable `tailscale funnel` for the server port and resolve the public
     /// ts.net URL (https://<machine>.<tailnet>.ts.net). Runs async, idempotent.
     func setupFunnelIfNeeded() {
+        setupFunnelIfNeeded(attempt: 0)
+    }
+
+    /// Runs tailscale funnel for our port and resolves the public URL.
+    /// Retries a few times: on boot the app (LaunchAgent) may start before
+    /// tailscaled is ready, so the first attempt can fail transiently.
+    private func setupFunnelIfNeeded(attempt: Int) {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self = self else { return }
             let url = self.enableFunnel(port: self.port)
@@ -189,8 +196,13 @@ final class RemoteUnlockServer {
                 self.funnelURL = url
                 if let url = url {
                     print("RemoteUnlock: Funnel URL: \(url)")
+                } else if attempt < 3 {
+                    print("RemoteUnlock: Funnel setup failed (attempt \(attempt + 1)), retrying in 5s")
+                    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 5) {
+                        self.setupFunnelIfNeeded(attempt: attempt + 1)
+                    }
                 } else {
-                    print("RemoteUnlock: Funnel not configured")
+                    print("RemoteUnlock: Funnel not configured after retries")
                 }
             }
         }

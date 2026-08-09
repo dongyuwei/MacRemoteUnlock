@@ -316,8 +316,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc func openFunnelPage() {
+        if remote.funnelURL == nil {
+            remote.setupFunnelIfNeeded() // kick off (re)configuration
+            errorModal("Funnel 正在配置中，请稍后重试。若仍未生效，请检查 Tailscale 连接。")
+            return
+        }
         guard let urlString = remote.funnelURL, let url = URL(string: urlString) else {
-            errorModal("Funnel 未启用。请先在菜单勾选 Enable Funnel (public URL)。")
+            errorModal("Funnel URL 无效")
             return
         }
         NSWorkspace.shared.open(url)
