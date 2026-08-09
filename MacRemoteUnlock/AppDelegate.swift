@@ -229,30 +229,20 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         ]
         SecItemDelete(deleteQuery as CFDictionary)
 
-        // Explicit access control:
+        // Use kSecAttrAccessible (NOT kSecAttrAccessControl):
         // - AfterFirstUnlock: readable after a reboot once the keychain is
         //   unlocked (survives system restarts).
-        // - Empty flags: no user-interaction / biometric requirement, so it can
-        //   be read while the screen is locked (the core use case). Without
-        //   this, macOS defaults can make the item unreadable after a reboot
-        //   until the password is re-set via the menu.
-        var accessError: Unmanaged<CFError>?
-        guard let access = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleAfterFirstUnlock,
-            [],
-            &accessError) else {
-            let info = accessError?.takeRetainedValue() as Error?
-            errorModal("Failed to create keychain access control", info: info?.localizedDescription)
-            return
-        }
-
+        // - No access-control object: the item's ACL stays "allow all
+        //   applications", so it does NOT get bound to our ad-hoc code
+        //   signature. With an access-control object, every rebuild changes
+        //   the signature and macOS prompts for keychain access again
+        //   (which fails silently while the screen is locked).
         let query: [String: Any] = [
             String(kSecClass): kSecClassGenericPassword,
             String(kSecAttrAccount): NSUserName(),
             String(kSecAttrService): service,
             String(kSecAttrLabel): "MacRemoteUnlock",
-            String(kSecAttrAccessControl): access,
+            String(kSecAttrAccessible): kSecAttrAccessibleAfterFirstUnlock,
             String(kSecValueData): pw,
         ]
         let status = SecItemAdd(query as CFDictionary, nil)
