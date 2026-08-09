@@ -219,15 +219,42 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func storePassword(_ password: String) {
         let pw = password.data(using: .utf8)!
+        let service = Bundle.main.bundleIdentifier ?? "MacRemoteUnlock"
+
+        // Remove any existing item first
+        let deleteQuery: [String: Any] = [
+            String(kSecClass): kSecClassGenericPassword,
+            String(kSecAttrAccount): NSUserName(),
+            String(kSecAttrService): service,
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Explicit access control:
+        // - AfterFirstUnlock: readable after a reboot once the keychain is
+        //   unlocked (survives system restarts).
+        // - Empty flags: no user-interaction / biometric requirement, so it can
+        //   be read while the screen is locked (the core use case). Without
+        //   this, macOS defaults can make the item unreadable after a reboot
+        //   until the password is re-set via the menu.
+        var accessError: Unmanaged<CFError>?
+        guard let access = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleAfterFirstUnlock,
+            [],
+            &accessError) else {
+            let info = accessError?.takeRetainedValue() as Error?
+            errorModal("Failed to create keychain access control", info: info?.localizedDescription)
+            return
+        }
 
         let query: [String: Any] = [
             String(kSecClass): kSecClassGenericPassword,
             String(kSecAttrAccount): NSUserName(),
-            String(kSecAttrService): Bundle.main.bundleIdentifier ?? "MacRemoteUnlock",
+            String(kSecAttrService): service,
             String(kSecAttrLabel): "MacRemoteUnlock",
+            String(kSecAttrAccessControl): access,
             String(kSecValueData): pw,
         ]
-        SecItemDelete(query as CFDictionary)
         let status = SecItemAdd(query as CFDictionary, nil)
         guard status == errSecSuccess else {
             let err = SecCopyErrorMessageString(status, nil)
@@ -255,6 +282,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return nil
         }
         guard status == errSecSuccess else {
+            if status == errSecInteractionNotAllowed {
+                // Keychain not accessible right now (e.g. screen locked / keychain locked).
+                // No point showing a modal dialog while locked.
+                print("Password read blocked (keychain locked, err -25308)")
+                return nil
+            }
             let info = SecCopyErrorMessageString(status, nil)
             errorModal("Failed to retrieve password", info: info as String? ?? "Status \(status)")
             return nil
