@@ -34,6 +34,23 @@ The author's Mac Touch ID frequently fails to recognize the fingerprint — espe
 
 日志 / Log: `~/Library/Logs/MacRemoteUnlock/macremoteunlock.log`
 
+## 开发签名 / Development Signing
+
+项目使用本地自签名代码签名证书 **`MacRemoteUnlock Dev`** 签名（非 ad-hoc）。
+The project is signed with a local self-signed code-signing certificate **`MacRemoteUnlock Dev`** (not ad-hoc).
+
+**为什么 / Why**: ad-hoc 签名每次编译都会变化，macOS 会把每次构建当作"新应用"，导致 Keychain 和辅助功能授权反复失效、每次编译后都要重新授权/弹窗。自签名证书让**签名身份稳定**：首次授权（Always Allow）后，重新编译不再弹窗。
+
+**创建证书（仅首次需要，约 1 分钟）/ Create the certificate once (first time only)**:
+1. 打开 钥匙串访问.app / Open **Keychain Access.app**
+2. 菜单：证书助理 → 创建证书… / Menu: **Certificate Assistant → Create a Certificate…**
+3. 名称填 `MacRemoteUnlock Dev`，证书类型选**代码签名** / Name: `MacRemoteUnlock Dev`, Certificate Type: **Code Signing**
+4. 验证：`security find-identity -v -p codesigning` 应能看到该证书
+
+**首次一次性授权 / One-time grants after switching to this signature**:
+- 辅助功能 / Accessibility: 系统设置 → 隐私与安全性 → 辅助功能 → 勾选 MacRemoteUnlock
+- Keychain: 首次锁屏测试若弹窗，选 **Always Allow**（之后永不弹）
+
 ## 首次使用 / First-time Setup
 
 1. 启动后（remote unlock **默认启用**），菜单栏图标 → **Remote Unlock** 查看地址和 token
@@ -77,8 +94,8 @@ Menu → **Enable Funnel (public URL)**:
 
 - 仅覆盖**锁屏场景**（重启后登录窗口 / FileVault 界面需手动输密码）
   Works only for the **lock screen** (login window after reboot / FileVault still need a manual password)
-- Debug 构建是 ad-hoc 签名，辅助功能授权绑定启动路径：**必须用 `./start.sh` 启动**，复制到 /Applications 会静默失去解锁权限；重新构建后如失效需重新授权
-  Debug builds are ad-hoc signed; the Accessibility permission is bound to the launch path — **always launch via `./start.sh`**, copying to /Applications silently loses the permission; re-grant it after rebuilding
+- 构建使用自签名证书（`MacRemoteUnlock Dev`），**签名身份稳定**：重新编译不影响 Keychain/辅助功能授权；但授权仍**绑定启动路径**——**必须用 `./start.sh` 启动**，复制到 /Applications 会静默失去解锁权限
+  Builds are signed with a self-signed certificate (`MacRemoteUnlock Dev`), so the **signature identity is stable** — rebuilds don't invalidate Keychain/Accessibility grants; however grants are still **bound to the launch path** — **always launch via `./start.sh`**; copying to /Applications silently loses the permission
 
 ## License
 
