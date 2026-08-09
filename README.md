@@ -90,6 +90,20 @@ Menu → **Enable Funnel (public URL)**:
 
 **移除的功能 / Removed**: BLE 接近检测（BLE.swift）、RSSI 菜单、媒体暂停恢复（MediaRemote）、登录项 Launcher helper、AboutBox、更新检查、lock/unlock 事件脚本。
 
+## 分发 / Distribution
+
+本项目是 **MIT 开源**的。给别人使用时，推荐**让对方自己构建**——直接分发自签名/未公证的 app 会被 Gatekeeper 拦截（"无法验证开发者"）。
+
+This project is **MIT-licensed**. To share it, the recommended way is to let others **build it themselves** — distributing a self-signed/un-notarized app triggers Gatekeeper warnings ("cannot verify the developer").
+
+- 对方 clone 仓库 → 运行 `./start.sh --build` → 按上面「开发签名」小节在 TA 自己的机器上创建证书（或默认 ad-hoc）→ 首次授权后即可使用
+  Clone the repo → `./start.sh --build` → create a certificate per the *Development Signing* section above (or use ad-hoc) → grant permissions once and it works
+- 正式分发（任意 Mac 双击即用、无警告）需要 **Apple Developer Program**（$99/年）的 Developer ID 签名 + 公证（notarization）——本项目当前未配置，有需要时再接入
+  Official distribution (double-click on any Mac, no warnings) requires **Apple Developer Program** ($99/yr) Developer ID signing + notarization — not configured yet
+
+> 仓库中的 `MacRemoteUnlock Dev.cer`（公钥证书）仅用于记录项目使用的签名身份，**不含私钥、无法用于签名**，无安全风险。私钥（`.p12`）**绝不能提交或分享**——泄露即可冒充你的签名身份。
+> The `MacRemoteUnlock Dev.cer` (public certificate) in this repo only records the signing identity used; it contains **no private key and cannot be used to sign**, so it is safe to share. The private key (`.p12`) must **never** be committed or shared.
+
 ## 已知限制 / Known Limitations
 
 - 仅覆盖**锁屏场景**（重启后登录窗口 / FileVault 界面需手动输密码）
