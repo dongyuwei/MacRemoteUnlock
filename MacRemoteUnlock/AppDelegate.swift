@@ -18,6 +18,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var funnelToggleItem: NSMenuItem?
     var funnelOpenItem: NSMenuItem?
     var launchAtLoginItem: NSMenuItem?
+    var showTokenItem: NSMenuItem?
+
+    /// Whether the access token is shown in the menu. Default OFF (safer).
+    var showTokenInMenu: Bool {
+        get { UserDefaults.standard.bool(forKey: "showTokenInMenu") }
+        set { UserDefaults.standard.set(newValue, forKey: "showTokenInMenu") }
+    }
 
     var displaySleep = false
     var systemSleep = false
@@ -30,7 +37,12 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if menu == remoteMenu {
             let ips = remote.tailscaleIPs()
             let host = ips.first ?? "not connected to Tailscale"
-            remoteURLLabel?.title = "http://\(host):\(remote.port)/  token: \(remote.token)"
+            if showTokenInMenu {
+                remoteURLLabel?.title = "http://\(host):\(remote.port)/  token: \(remote.token)"
+            } else {
+                remoteURLLabel?.title = "http://\(host):\(remote.port)/"
+            }
+            showTokenItem?.state = showTokenInMenu ? .on : .off
             if let url = remote.funnelURL {
                 funnelURLLabel?.title = "Funnel: \(url)"
             } else if remote.funnelEnabled {
@@ -291,6 +303,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Menu actions
 
+    @objc func toggleShowToken(_ item: NSMenuItem) {
+        showTokenInMenu = !showTokenInMenu
+        item.state = showTokenInMenu ? .on : .off
+    }
+
     @objc func toggleRemoteFunnel(_ item: NSMenuItem) {
         let on = !remote.funnelEnabled
         remote.funnelEnabled = on
@@ -443,6 +460,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         funnelOpenItem?.isHidden = !remote.funnelEnabled
         remoteMenu.addItem(withTitle: "Open Unlock Page…", action: #selector(openRemotePage), keyEquivalent: "")
         remoteMenu.addItem(withTitle: "Set Access Token…", action: #selector(setRemoteToken), keyEquivalent: "")
+        showTokenItem = remoteMenu.addItem(withTitle: "Show Access Token", action: #selector(toggleShowToken), keyEquivalent: "")
+        showTokenItem?.state = showTokenInMenu ? .on : .off
         remoteMenu.addItem(withTitle: "Set HTTP Server Port…", action: #selector(setRemotePort), keyEquivalent: "")
 
         mainMenu.addItem(NSMenuItem.separator())
