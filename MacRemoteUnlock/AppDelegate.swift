@@ -395,69 +395,36 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let pw = password.data(using: .utf8)!
         let service = Bundle.main.bundleIdentifier ?? "MacRemoteUnlock"
 
-        // Remove any existing item first
-        let deleteQuery: [String: Any] = [
-            String(kSecClass): kSecClassGenericPassword,
-            String(kSecAttrAccount): NSUserName(),
-            String(kSecAttrService): service,
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        // Use kSecAttrAccessible (NOT kSecAttrAccessControl):
+        // Simplest path: no explicit ACL (no legacy SecKeychainItemSetAccess,
+        // which forces a password prompt every time and has no "Always Allow").
+        // The first add/update shows the standard keychain prompt once; the
+        // user picks "Always Allow" and macOS records our (stable, self-signed)
+        // signature in the item ACL — persistent across reboots and rebuilds.
         // - AfterFirstUnlock: readable after a reboot once the keychain is
         //   unlocked (survives system restarts).
-        // - No access-control object: the item's ACL stays "allow all
-        //   applications", so it does NOT get bound to our ad-hoc code
-        //   signature. With an access-control object, every rebuild changes
-        //   the signature and macOS prompts for keychain access again
-        //   (which fails silently while the screen is locked).
-        let query: [String: Any] = [
+        // - ACL binds to our signature: we read silently, other apps prompt.
+        let locateQuery: [String: Any] = [
             String(kSecClass): kSecClassGenericPassword,
             String(kSecAttrAccount): NSUserName(),
             String(kSecAttrService): service,
-            String(kSecAttrLabel): "MacRemoteUnlock",
-            String(kSecAttrAccessible): kSecAttrAccessibleAfterFirstUnlock,
-            String(kSecValueData): pw,
         ]
-        let status = SecItemAdd(query as CFDictionary, nil)
+        var status = SecItemUpdate(locateQuery as CFDictionary,
+                                   [String(kSecValueData): pw] as CFDictionary)
+        if status == errSecItemNotFound {
+            var addQuery = locateQuery
+            addQuery[String(kSecAttrLabel)] = "MacRemoteUnlock"
+            addQuery[String(kSecAttrAccessible)] = kSecAttrAccessibleAfterFirstUnlock
+            addQuery[String(kSecValueData)] = pw
+            status = SecItemAdd(addQuery as CFDictionary, nil)
+        }
         guard status == errSecSuccess else {
             let err = SecCopyErrorMessageString(status, nil)
-            errorModal("Failed to store password to Keychain", info: err as String? ?? "Status \(status)")
+            log("storePassword FAILED: OSStatus \(status) \(err as String? ?? "")")
+            errorModal("Failed to store password to Keychain",
+                       info: "OSStatus \(status): \(err as String? ?? "unknown")")
             return
         }
-        // Explicitly set the item's ACL to "any application". The default ACL
-        // binds to the creating app's signature and macOS re-prompts for
-        // access after a reboot — which fails silently while the screen is
-        // locked. A nil-path trusted application means "any app, no prompt".
-        if let item = copyKeychainItem(service) {
-            setAccessAnyApp(item)
-        }
-    }
-
-    private func copyKeychainItem(_ service: String) -> SecKeychainItem? {
-        let query: [String: Any] = [
-            String(kSecClass): kSecClassGenericPassword,
-            String(kSecAttrAccount): NSUserName(),
-            String(kSecAttrService): service,
-            String(kSecReturnRef): kCFBooleanTrue!,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        guard status == errSecSuccess, let ref = item else { return nil }
-        return (ref as! SecKeychainItem)
-    }
-
-    // Deprecated (macOS 10.15+) but still functional; the only way to set an
-    // explicit "allow any application" ACL on a keychain item.
-    private func setAccessAnyApp(_ item: SecKeychainItem) {
-        var app: SecTrustedApplication?
-        SecTrustedApplicationCreateFromPath(nil, &app)  // nil path = any application
-        guard let trusted = app else { return }
-        let list = [trusted] as CFArray
-        var access: SecAccess?
-        guard SecAccessCreate("MacRemoteUnlock" as CFString, list, &access) == errSecSuccess,
-              let a = access else { return }
-        SecKeychainItemSetAccess(item, a)
+        log("storePassword OK (default ACL, Always Allow once)")
     }
 
     func fetchPassword(warn: Bool = false) -> String? {
