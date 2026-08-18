@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CoreGraphics
 
 // Remote Unlock HTTP Server (prototype)
 //
@@ -88,6 +89,14 @@ final class RemoteUnlockServer {
                 disableFunnelSync()
             }
         }
+    }
+
+    /// Whether the remote "Lock Screen" action is enabled. Default OFF:
+    /// locking the Mac remotely is a stronger action than unlocking, so it
+    /// needs an explicit opt-in.
+    var lockScreenEnabled: Bool {
+        get { prefs.bool(forKey: "remoteLockEnabled") }
+        set { prefs.set(newValue, forKey: "remoteLockEnabled") }
     }
 
     // MARK: - Configuration
@@ -425,7 +434,7 @@ final class RemoteUnlockServer {
         let reqToken = (query["token"] ?? headerValue(header, name: "X-Auth-Token"))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let tokenOK = (reqToken == token.trimmingCharacters(in: .whitespacesAndNewlines))
-        let tokenProtected = (path == "/status" || path == "/approve" || path == "/deny")
+        let tokenProtected = (path == "/status" || path == "/approve" || path == "/deny" || path == "/lock")
 
         if tokenProtected {
             if isRateLimited() {
@@ -474,8 +483,42 @@ final class RemoteUnlockServer {
             send(fd, status: 200, contentType: "application/json",
                  body: json(["ok": true, "message": "已拒绝"]))
 
+        case ("POST", "/lock"):
+            guard tokenOK else {
+                send(fd, status: 401, body: json(["error": "invalid token"])); return
+            }
+            guard lockScreenEnabled else {
+                print("RemoteUnlock: lock request ignored (remote lock screen disabled)")
+                send(fd, status: 403, body: json(["error": "remote lock screen disabled"])); return
+            }
+            // Respond before locking: the screen suspend may drop the connection.
+            send(fd, status: 200, contentType: "application/json",
+                 body: json(["ok": true, "message": "已锁定"]))
+            lockScreen()
+
         default:
             send(fd, status: 404, body: json(["error": "not found"]))
+        }
+    }
+
+    /// Lock the screen by starting the system screensaver.
+    /// (System Setting: "require password after screensaver" must be ON.)
+    ///
+    /// Why not Cmd+Ctrl+Q: a CGEvent-injected Cmd+Ctrl+Q locks the session
+    /// but macOS keeps keyboard focus in the previous app (e.g. Spotlight),
+    /// so injected password keystrokes never reach the login window. The
+    /// screensaver is the standard lock path — after Esc, the login window
+    /// has keyboard focus and keystroke injection works reliably.
+    private func lockScreen() {
+        // LaunchServices start (open -a) — exec'ing the binary directly does
+        // not start the screensaver.
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-a", "ScreenSaverEngine"]
+        do {
+            try p.run()
+        } catch {
+            print("RemoteUnlock: lockScreen failed: \(error)")
         }
     }
 
@@ -634,6 +677,9 @@ final class RemoteUnlockServer {
         .approve { background: #34a853; color: #fff; }
         .approve:active { background: #2e8e48; }
         .approve:disabled { background: #2a3a2f; color: #7f8c84; }
+        .danger { background: #d93025; color: #fff; }
+        .danger:active { background: #b3261e; }
+        .danger:disabled { background: #3a2a28; color: #8c7f7c; }
         .secondary { background: #2a2f38; color: #e8eaed; margin-top: 12px; font-size: 15px; }
         input[type=password] {
           width: 100%; padding: 14px; font-size: 24px; letter-spacing: 8px; text-align: center;
@@ -713,8 +759,9 @@ final class RemoteUnlockServer {
           setIcon('🔓');
           setState('Mac 未锁定');
           document.getElementById('actionArea').innerHTML =
+            '<button class="danger" id="lockBtn" onclick="lockScreen()">锁定屏幕</button>' +
             '<button class="secondary" onclick="refresh()">刷新状态</button>';
-          document.getElementById('hint').textContent = '';
+          document.getElementById('hint').textContent = '若 Mac 上未开启「远程锁定屏幕」，锁定按钮将无效';
         }
 
         function renderOffline() {
@@ -771,6 +818,33 @@ final class RemoteUnlockServer {
             setMsg('网络错误', 'err');
           }
           btn.disabled = false; btn.textContent = '批准解锁';
+        }
+
+        async function lockScreen() {
+          var btn = document.getElementById('lockBtn');
+          btn.disabled = true; btn.textContent = '处理中…';
+          try {
+            var r = await fetch('/lock?token=' + encodeURIComponent(token), { method: 'POST' });
+            var d = await r.json();
+            if (r.status === 403) {
+              setMsg('远程锁定屏幕未开启，请在 Mac 菜单中启用', 'err');
+              btn.disabled = false; btn.textContent = '锁定屏幕';
+              return;
+            }
+            if (r.status === 401) {
+              localStorage.removeItem(TOKEN_KEY);
+              showTokenInput();
+              setMsg('令牌无效，请重新输入', 'err');
+              return;
+            }
+            if (r.status === 429) { setMsg('尝试次数过多，请 1 分钟后再试', 'err'); return; }
+            setMsg(d.message || (r.ok ? '已锁定' : '请求失败'), r.ok ? 'ok' : 'err');
+          } catch (e) {
+            setMsg('网络错误', 'err');
+            btn.disabled = false; btn.textContent = '锁定屏幕';
+            return;
+          }
+          setTimeout(refresh, 1500); // poll will pick up the locked state
         }
 
         if (token && token.length >= 6) {

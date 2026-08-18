@@ -1,6 +1,7 @@
 import Cocoa
 import Security
 import IOKit.pwr_mgt
+import ApplicationServices
 
 // Wake the display so keystrokes can be injected into the lock screen.
 func wakeDisplay() {
@@ -19,6 +20,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var funnelOpenItem: NSMenuItem?
     var launchAtLoginItem: NSMenuItem?
     var showTokenItem: NSMenuItem?
+    var lockToggleItem: NSMenuItem?
 
     /// Whether the access token is shown in the menu. Default OFF (safer).
     var showTokenInMenu: Bool {
@@ -43,6 +45,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 remoteURLLabel?.title = "http://\(host):\(remote.port)/"
             }
             showTokenItem?.state = showTokenInMenu ? .on : .off
+            lockToggleItem?.state = remote.lockScreenEnabled ? .on : .off
             if let url = remote.funnelURL {
                 funnelURLLabel?.title = "Funnel: \(url)"
             } else if remote.funnelEnabled {
@@ -143,53 +146,209 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inScreensaver = false
     }
 
+    func log(_ msg: String) {
+        let line = "\(Date()) \(msg)\n"
+        let dir = NSHomeDirectory() + "/Library/Logs/MacRemoteUnlock"
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let url = URL(fileURLWithPath: dir + "/unlock.log")
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile()
+            h.write(line.data(using: .utf8)!)
+            try? h.close()
+        } else {
+            try? line.data(using: .utf8)?.write(to: url)
+        }
+    }
+
     // MARK: - Unlock
 
     func remoteUnlock() -> String {
         guard isScreenLocked() else { return "Mac 未处于锁定状态" }
         guard let password = fetchPassword(warn: false) else { return "未设置密码（菜单：Set Login Password…）" }
-        print("Remote: unlock approved, entering password")
-        print("Remote: state locked=\(isScreenLocked()) displaySleep=\(displaySleep) systemSleep=\(systemSleep) inScreensaver=\(inScreensaver)")
+        log("unlock approved; state locked=\(isScreenLocked()) displaySleep=\(displaySleep) systemSleep=\(systemSleep) inScreensaver=\(inScreensaver)")
         if displaySleep {
-            print("Remote: display asleep, waking up")
-            wakeDisplay()
-            var attempts = 0
-            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] t in
-                guard let self = self else { t.invalidate(); return }
-                attempts += 1
-                if !self.displaySleep || attempts >= 12 {
-                    t.invalidate()
-                    if !self.displaySleep {
-                        self.performRemoteUnlock(password)
-                    }
-                } else {
-                    wakeDisplay()
-                }
-            })
+            wakeAndUnlock(password)
         } else {
-            Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: { [weak self] _ in
+            // Locked with the display on (screensaver remote-lock path).
+            // Wait for the lock screen to settle, then type —
+            // performRemoteUnlock handles Esc to exit the screensaver.
+            // (A sleep/wake cycle is not needed here: the screensaver lock
+            // path has proper keyboard focus on the login window.)
+            log("locked, display on: waiting 1.2s then typing")
+            Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false, block: { [weak self] _ in
                 self?.performRemoteUnlock(password)
             })
         }
         return "已批准，正在输入密码…"
     }
 
-    func performRemoteUnlock(_ password: String) {
-        guard isScreenLocked() else {
-            print("Remote: performRemoteUnlock skipped, not locked anymore")
+    private func wakeAndUnlock(_ password: String) {
+        wakeDisplay()
+        var attempts = 0
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true, block: { [weak self] t in
+            guard let self = self else { t.invalidate(); return }
+            attempts += 1
+            if !self.displaySleep || attempts >= 12 {
+                t.invalidate()
+                if !self.displaySleep {
+                    // Give the login window time to fully appear after wake
+                    // — injecting while it is still coming up makes every
+                    // keystroke beep and get dropped.
+                    self.log("display awake; waiting 2s for login window to settle")
+                    Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false, block: { [weak self] _ in
+                        self?.performRemoteUnlock(password)
+                    })
+                }
+            } else {
+                wakeDisplay()
+            }
+        })
+    }
+
+    private func sleepDisplayNow() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        p.arguments = ["displaysleepnow"]
+        do {
+            try p.run()
+        } catch {
+            log("sleepDisplayNow failed: \(error)")
+        }
+    }
+
+    /// Click just above the centre of the main display to focus the login
+    /// (needed when the screen is locked but not asleep).
+    func clickScreenCenter() {
+        let bounds = CGDisplayBounds(CGMainDisplayID())
+        let p = CGPoint(x: bounds.midX, y: bounds.midY - bounds.height * 0.12)
+        let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left)
+        let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)
+        down?.post(tap: .cghidEventTap)
+        up?.post(tap: .cghidEventTap)
+    }
+
+    /// Select-all + Delete in the password field, so leftover characters from
+    /// a previous failed attempt can't corrupt the next injection. Harmless
+    /// when the field is empty.
+    func clearPasswordField() {
+        let src = CGEventSource(stateID: .hidSystemState)
+        let aDown = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true)  // 0 = A
+        aDown?.flags = .maskCommand
+        aDown?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)?.post(tap: .cghidEventTap)
+        CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true)?.post(tap: .cghidEventTap)  // 51 = delete
+        CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false)?.post(tap: .cghidEventTap)
+    }
+
+    /// Click the lock-screen password field so it takes keyboard focus.
+    /// First tries the Accessibility API to read the field's real coordinates
+    /// (position only, not content). Falls back to the known layout spot
+    /// (~72-80% screen height, confirmed by user testing).
+    func clickPasswordField() {
+        let src = CGEventSource(stateID: .hidSystemState)
+        if let p = findPasswordFieldCenter() {
+            log("AX located password field at \(p)")
+            let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left)
+            let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)
+            down?.post(tap: .cghidEventTap)
+            up?.post(tap: .cghidEventTap)
+            usleep(150_000)
             return
         }
-        print("Remote: performing unlock, inScreensaver=\(inScreensaver) displaySleep=\(displaySleep) locked=\(isScreenLocked())")
+        log("AX did not locate password field; using fallback positions")
+        let bounds = CGDisplayBounds(CGMainDisplayID())
+        for fy in [0.72, 0.76, 0.80] {
+            let p = CGPoint(x: bounds.midX, y: bounds.height * fy)
+            let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: p, mouseButton: .left)
+            let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp, mouseCursorPosition: p, mouseButton: .left)
+            down?.post(tap: .cghidEventTap)
+            up?.post(tap: .cghidEventTap)
+            usleep(150_000)
+        }
+    }
+
+    /// Search the loginwindow Accessibility tree for the password field and
+    /// return its centre point in screen coordinates. Reads geometry only.
+    func findPasswordFieldCenter() -> CGPoint? {
+        guard let loginwindow = NSWorkspace.shared.runningApplications.first(where: {
+            $0.bundleIdentifier == "com.apple.loginwindow"
+        }) else { return nil }
+        let app = AXUIElementCreateApplication(loginwindow.processIdentifier)
+        var windows: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows) == .success,
+              let winList = windows as? [AXUIElement] else { return nil }
+        for win in winList {
+            if let p = searchPasswordField(in: win) { return p }
+        }
+        return nil
+    }
+
+    private func searchPasswordField(in el: AXUIElement) -> CGPoint? {
+        var role: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, kAXRoleAttribute as CFString, &role) == .success,
+           let r = role as? String, r == "AXSecureTextField",
+           let p = fieldCenter(of: el) {
+            return p
+        }
+        var children: CFTypeRef?
+        if AXUIElementCopyAttributeValue(el, kAXChildrenAttribute as CFString, &children) == .success,
+           let kids = children as? [AXUIElement] {
+            for k in kids {
+                if let p = searchPasswordField(in: k) { return p }
+            }
+        }
+        return nil
+    }
+
+    private func fieldCenter(of el: AXUIElement) -> CGPoint? {
+        var pos: CFTypeRef?
+        var size: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(el, kAXPositionAttribute as CFString, &pos) == .success,
+              AXUIElementCopyAttributeValue(el, kAXSizeAttribute as CFString, &size) == .success else { return nil }
+        let p = pos as! AXValue
+        let s = size as! AXValue
+        var point = CGPoint.zero
+        var sz = CGSize.zero
+        guard AXValueGetValue(p, .cgPoint, &point), AXValueGetValue(s, .cgSize, &sz) else { return nil }
+        return CGPoint(x: point.x + sz.width / 2, y: point.y + sz.height / 2)
+    }
+
+    func performRemoteUnlock(_ password: String, retries: Int = 3) {
+        guard isScreenLocked() else {
+            log("performRemoteUnlock skipped, not locked anymore")
+            return
+        }
+        log("performing unlock, inScreensaver=\(inScreensaver) displaySleep=\(displaySleep) locked=\(isScreenLocked())")
         if inScreensaver {
-            print("Remote: pressing Esc to exit screensaver")
+            log("pressing Esc to exit screensaver")
             let src = CGEventSource(stateID: .hidSystemState)
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: true)?.post(tap: .cghidEventTap)
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: false)?.post(tap: .cghidEventTap)
+            // Give the screensaver time to exit and the login window to appear.
+            Thread.sleep(forTimeInterval: 0.8)
         }
         print("Remote: sending password keystrokes")
         unlockedAt = Date().timeIntervalSince1970
+        clickPasswordField()
+        Thread.sleep(forTimeInterval: 0.4)  // let the click land and focus
+        clearPasswordField()
+        Thread.sleep(forTimeInterval: 0.2)  // let the field clear before typing
         fakeKeyStrokes(password)
-        print("Remote: keystrokes sent")
+        log("keystrokes sent")
+        // The keystrokes may have raced the lock screen settling. If still
+        // locked shortly after, retry — just re-type (no click, which would
+        // steal focus from the password field).
+        if retries > 0 {
+            Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false, block: { [weak self] _ in
+                guard let self = self else { return }
+                if self.isScreenLocked() {
+                    self.log("still locked, retrying (retries left: \(retries - 1))")
+                    self.performRemoteUnlock(password, retries: retries - 1)
+                } else {
+                    self.log("unlocked")
+                }
+            })
+        }
     }
 
     // MARK: - Key events
@@ -263,6 +422,39 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             errorModal("Failed to store password to Keychain", info: err as String? ?? "Status \(status)")
             return
         }
+        // Explicitly set the item's ACL to "any application". The default ACL
+        // binds to the creating app's signature and macOS re-prompts for
+        // access after a reboot — which fails silently while the screen is
+        // locked. A nil-path trusted application means "any app, no prompt".
+        if let item = copyKeychainItem(service) {
+            setAccessAnyApp(item)
+        }
+    }
+
+    private func copyKeychainItem(_ service: String) -> SecKeychainItem? {
+        let query: [String: Any] = [
+            String(kSecClass): kSecClassGenericPassword,
+            String(kSecAttrAccount): NSUserName(),
+            String(kSecAttrService): service,
+            String(kSecReturnRef): kCFBooleanTrue!,
+        ]
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        guard status == errSecSuccess, let ref = item else { return nil }
+        return (ref as! SecKeychainItem)
+    }
+
+    // Deprecated (macOS 10.15+) but still functional; the only way to set an
+    // explicit "allow any application" ACL on a keychain item.
+    private func setAccessAnyApp(_ item: SecKeychainItem) {
+        var app: SecTrustedApplication?
+        SecTrustedApplicationCreateFromPath(nil, &app)  // nil path = any application
+        guard let trusted = app else { return }
+        let list = [trusted] as CFArray
+        var access: SecAccess?
+        guard SecAccessCreate("MacRemoteUnlock" as CFString, list, &access) == errSecSuccess,
+              let a = access else { return }
+        SecKeychainItemSetAccess(item, a)
     }
 
     func fetchPassword(warn: Bool = false) -> String? {
@@ -306,6 +498,11 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func toggleShowToken(_ item: NSMenuItem) {
         showTokenInMenu = !showTokenInMenu
         item.state = showTokenInMenu ? .on : .off
+    }
+
+    @objc func toggleRemoteLock(_ item: NSMenuItem) {
+        remote.lockScreenEnabled = !remote.lockScreenEnabled
+        item.state = remote.lockScreenEnabled ? .on : .off
     }
 
     @objc func toggleRemoteFunnel(_ item: NSMenuItem) {
@@ -463,6 +660,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         showTokenItem = remoteMenu.addItem(withTitle: "Show Access Token", action: #selector(toggleShowToken), keyEquivalent: "")
         showTokenItem?.state = showTokenInMenu ? .on : .off
         remoteMenu.addItem(withTitle: "Set HTTP Server Port…", action: #selector(setRemotePort), keyEquivalent: "")
+        lockToggleItem = remoteMenu.addItem(withTitle: "Enable Remote Lock Screen", action: #selector(toggleRemoteLock), keyEquivalent: "")
+        lockToggleItem?.state = remote.lockScreenEnabled ? .on : .off
 
         mainMenu.addItem(NSMenuItem.separator())
         mainMenu.addItem(withTitle: "Set Login Password…", action: #selector(askPassword), keyEquivalent: "")
