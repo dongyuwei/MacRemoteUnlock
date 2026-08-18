@@ -31,6 +31,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var displaySleep = false
     var systemSleep = false
     var inScreensaver = false
+    var screensaverStartTime: TimeInterval = 0
     var unlockedAt = 0.0
 
     // MARK: - Menu
@@ -139,6 +140,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc func onScreensaverStart() {
         print("screensaver start")
         inScreensaver = true
+        screensaverStartTime = Date().timeIntervalSince1970
     }
 
     @objc func onScreensaverStop() {
@@ -170,12 +172,13 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             wakeAndUnlock(password)
         } else {
             // Locked with the display on (screensaver remote-lock path).
-            // Wait for the lock screen to settle, then type —
-            // performRemoteUnlock handles Esc to exit the screensaver.
-            // (A sleep/wake cycle is not needed here: the screensaver lock
-            // path has proper keyboard focus on the login window.)
-            log("locked, display on: waiting 1.2s then typing")
-            Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false, block: { [weak self] _ in
+            // The page polls every 2s, so by the time an approve lands the
+            // lock screen is usually already settled — only wait the extra
+            // needed beyond the screensaver start, never more than 1.2s.
+            let elapsed = Date().timeIntervalSince1970 - screensaverStartTime
+            let wait = min(max(0.4, 1.2 - elapsed), 1.2)
+            log("locked, display on: waiting \(String(format: "%.1f", wait))s then typing")
+            Timer.scheduledTimer(withTimeInterval: wait, repeats: false, block: { [weak self] _ in
                 self?.performRemoteUnlock(password)
             })
         }
@@ -325,21 +328,21 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: true)?.post(tap: .cghidEventTap)
             CGEvent(keyboardEventSource: src, virtualKey: 0x35, keyDown: false)?.post(tap: .cghidEventTap)
             // Give the screensaver time to exit and the login window to appear.
-            Thread.sleep(forTimeInterval: 0.8)
+            Thread.sleep(forTimeInterval: 0.6)
         }
         print("Remote: sending password keystrokes")
         unlockedAt = Date().timeIntervalSince1970
         clickPasswordField()
-        Thread.sleep(forTimeInterval: 0.4)  // let the click land and focus
+        Thread.sleep(forTimeInterval: 0.25)  // let the click land and focus
         clearPasswordField()
-        Thread.sleep(forTimeInterval: 0.2)  // let the field clear before typing
+        Thread.sleep(forTimeInterval: 0.1)  // let the field clear before typing
         fakeKeyStrokes(password)
         log("keystrokes sent")
         // The keystrokes may have raced the lock screen settling. If still
         // locked shortly after, retry — just re-type (no click, which would
         // steal focus from the password field).
         if retries > 0 {
-            Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false, block: { [weak self] _ in
+            Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: { [weak self] _ in
                 guard let self = self else { return }
                 if self.isScreenLocked() {
                     self.log("still locked, retrying (retries left: \(retries - 1))")
